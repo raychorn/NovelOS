@@ -115,6 +115,60 @@ def build_server(host: str = "127.0.0.1", port: int = 8765) -> FastMCP:
             return {"ok": True, "number": c.number, "title": c.title, "word_count": c.word_count}
 
     @mcp.tool()
+    def update_chapter_metadata(
+        project_id: str,
+        number: int,
+        title: Optional[str] = None,
+        act: Optional[int] = None,
+        pov: Optional[str] = None,
+        status: Optional[str] = None,
+        synopsis: Optional[str] = None,
+        beats: Optional[list[str]] = None,
+        target_words: Optional[int] = None,
+        assigned_agent_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Update chapter metadata without touching prose. Only provided fields change; pass "" for assigned_agent_id to clear it."""
+        with Session(engine()) as s:
+            p = _project(s, project_id)
+            c = s.exec(select(Chapter).where(Chapter.project_id == p.id, Chapter.number == number)).first()
+            if not c:
+                raise ValueError(f"Chapter {number} doesn't exist yet.")
+            updates: dict[str, Any] = {}
+            for field, value in (
+                ("title", title),
+                ("act", act),
+                ("pov", pov),
+                ("status", status),
+                ("synopsis", synopsis),
+                ("beats", beats),
+                ("target_words", target_words),
+                ("assigned_agent_id", assigned_agent_id),
+            ):
+                if value is None:
+                    continue
+                if field == "assigned_agent_id" and value == "":
+                    value = None
+                setattr(c, field, value)
+                updates[field] = value
+            if not updates:
+                return {"ok": True, "number": c.number, "updated": [], "chapter": {
+                    "number": c.number, "title": c.title, "act": c.act, "pov": c.pov,
+                    "status": c.status, "synopsis": c.synopsis, "beats": c.beats,
+                    "target_words": c.target_words, "assigned_agent_id": c.assigned_agent_id,
+                }}
+            c.updated_at = now()
+            p.updated_at = now()
+            s.add(c)
+            s.add(p)
+            s.commit()
+            s.refresh(c)
+            return {"ok": True, "number": c.number, "updated": sorted(updates), "chapter": {
+                "number": c.number, "title": c.title, "act": c.act, "pov": c.pov,
+                "status": c.status, "synopsis": c.synopsis, "beats": c.beats,
+                "target_words": c.target_words, "assigned_agent_id": c.assigned_agent_id,
+            }}
+
+    @mcp.tool()
     def search_codex(project_id: str, query: str = "", kind: Optional[str] = None) -> list[dict[str, Any]]:
         """Find Codex entries (characters, locations, items, lore...) by name, alias or summary."""
         with Session(engine()) as s:

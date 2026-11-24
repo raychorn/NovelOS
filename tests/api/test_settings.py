@@ -155,21 +155,32 @@ async def _mcp_round_trip(project_id):
     server = build_server()
     async with create_connected_server_and_client_session(server._mcp_server) as session:
         init_tools = {t.name for t in (await session.list_tools()).tools}
-        assert {"list_projects", "get_book", "get_chapter", "write_chapter", "search_codex", "add_codex_entry",
-                "recall_memory", "remember", "run_continuity"} <= init_tools
+        assert {"list_projects", "get_book", "get_chapter", "write_chapter", "update_chapter_metadata",
+                "search_codex", "add_codex_entry", "recall_memory", "remember", "run_continuity"} <= init_tools
         listed = await session.call_tool("list_projects", {})
         projects = json.loads(listed.content[0].text)
         assert projects["id"] == project_id if isinstance(projects, dict) else projects[0]["id"] == project_id
         w = await session.call_tool("write_chapter", {"project_id": project_id, "number": 1,
                                                       "text": "The orchard was glass at dawn."})
         assert json.loads(w.content[0].text)["word_count"] == 6
+        meta = await session.call_tool("update_chapter_metadata", {"project_id": project_id, "number": 1,
+                                                                   "title": "Dawn Glass", "pov": "Mara",
+                                                                   "status": "revising", "target_words": 1200})
+        meta_out = json.loads(meta.content[0].text)
+        assert meta_out["ok"] is True
+        assert set(meta_out["updated"]) == {"pov", "status", "target_words", "title"}
+        assert meta_out["chapter"]["title"] == "Dawn Glass"
         await session.call_tool("remember", {"project_id": project_id, "content": "Mara fears the orchard."})
         rec = await session.call_tool("recall_memory", {"project_id": project_id, "query": "orchard"})
         assert "Mara" in rec.content[0].text
         cont = await session.call_tool("run_continuity", {"project_id": project_id})
         assert "count" in json.loads(cont.content[0].text)
         ch = await session.call_tool("get_chapter", {"project_id": project_id, "number": 1})
-        assert "glass at dawn" in json.loads(ch.content[0].text)["text"]
+        chapter = json.loads(ch.content[0].text)
+        assert "glass at dawn" in chapter["text"]
+        assert chapter["title"] == "Dawn Glass"
+        assert chapter["pov"] == "Mara"
+        assert chapter["status"] == "revising"
 
 
 def test_mcp_round_trip(client, project):
